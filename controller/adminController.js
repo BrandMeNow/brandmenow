@@ -31,6 +31,8 @@ import privatestoreModel from "../models/privatestoreModel.js";
 import stripe from 'stripe';
 
 import dotenv from 'dotenv';
+import folderModel from "../models/folderModel.js";
+import { stringify } from "csv-stringify";
 
 
 const stripeInstance = stripe(process.env.stripe_api);
@@ -38,16 +40,18 @@ const stripeInstance = stripe(process.env.stripe_api);
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
         // Define the destination folder where uploaded images will be saved
-        cb(null, 'public/uploads/');
+        cb(null, "public/uploads/");
     },
     filename: function (req, file, cb) {
         // Define the filename for the uploaded image
-        cb(null, file.fieldname + '-' + Date.now() + path.extname(file.originalname));
-    }
+        cb(
+            null,
+            file.fieldname + "-" + Date.now() + path.extname(file.originalname)
+        );
+    },
 });
 
 const upload = multer({ storage: storage });
-
 
 export const SignupAdmin = async (req, res) => {
     try {
@@ -146,44 +150,53 @@ function formatFileSize(bytes) {
     return megabytes.toFixed(2) + ' MB';
 }
 
+
 export const handleImageUpload = async (req, res) => {
     try {
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: "No image file uploaded" });
+        }
+
         const uploadedImage = req.file;
         const imageName = uploadedImage.originalname;
-        const filename = uploadedImage.filename; // Get the filename from the req.file object
+        const filename = uploadedImage.filename;
 
-        const fileSizeFormatted = formatFileSize(uploadedImage.size);
-
-        // Get image dimensions using the image-size library
-        const dimensions = imageSize(uploadedImage.path);
+        const fileSizeFormatted = formatFileSize(uploadedImage.size); // Assuming this function is defined elsewhere
+        const dimensions = imageSize(uploadedImage.path); // Assuming this function is defined elsewhere
         const width = dimensions.width;
         const height = dimensions.height;
-
-        const title = imageName.substring(0, imageName.lastIndexOf('.'));
+        const title = imageName.substring(0, imageName.lastIndexOf("."));
 
         const filePathAndName = `${filename}`;
 
+        let newImage;
+        if (!req.query.id) { // Check if id is not provided or undefined
+            newImage = new galleryModel({
+                title: title,
+                filePath: filePathAndName,
+                fileType: uploadedImage.mimetype,
+                fileSize: fileSizeFormatted,
+                dimensions: `${width}x${height}`,
+            });
+        } else {
+            newImage = new galleryModel({
+                title: title,
+                filePath: filePathAndName,
+                fileType: uploadedImage.mimetype,
+                fileSize: fileSizeFormatted,
+                dimensions: `${width}x${height}`,
+                folderId: req.query.id, // Use the provided id
+            });
+        }
 
-        // Create a new image document using the Image model
-        const newImage = new galleryModel({
-            title: title,
-            filePath: filePathAndName, // Store the filename in the database
-            fileType: uploadedImage.mimetype,
-            fileSize: fileSizeFormatted, // Use the formatted file size
-            dimensions: `${width}x${height}`, // Dimensions as width x height
-
-        });
-
-        // Save the image document to the database
         await newImage.save();
 
-        // Send a success response
-        res.status(200).json({ success: true, message: 'Image uploaded successfully' });
+        res.status(200).json({ success: true, message: "Image uploaded successfully" });
     } catch (error) {
-        // Handle errors here
         console.error(error);
-        res.status(500).json({ success: false, message: 'Internal Server Error' });
+        res.status(500).json({ success: false, message: "Internal Server Error" });
     }
+
 };
 
 
@@ -295,6 +308,244 @@ export const deleteGalleryController = async (req, res) => {
 
 
 export const uploadImage = upload.single('image');
+
+
+
+export const AddAdminFolderController = async (req, res) => {
+    try {
+        const { id } = req.query; // Access id from query parameters
+        const { name } = req.body;
+
+        // Validation
+        if (!name) {
+            return res.status(400).send({
+                success: false,
+                message: "Please Provide Folder name",
+            });
+        }
+
+        let newFolder;
+        if (id) {
+            // Create a new category with the specified parent
+            newFolder = new folderModel({ name, folderId: id });
+        } else {
+            // Create a new category without a parent
+            newFolder = new folderModel({ name });
+        }
+
+        await newFolder.save();
+
+        return res.status(201).send({
+            success: true,
+            message: "Folder Created!",
+            newFolder,
+        });
+    } catch (error) {
+        if (error.code === 11000 && error.keyPattern && error.keyPattern.name) {
+            // Duplicate key error, i.e., folder name already exists
+            return res.status(400).send({
+                success: false,
+                message: "Folder name already exists. Please choose a different name.",
+            });
+        }
+        console.error("Error while creating Folder:", error);
+        return res.status(500).send({
+            success: false,
+            message: "Error while creating Folder",
+            error,
+        });
+    }
+};
+
+
+export const GetFolderIDAdmin = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const folder = await folderModel.findById(id);
+        if (!folder) {
+            return res.status(404).json({
+                message: "Folder not found",
+                success: false,
+            });
+        }
+        return res.status(200).json({
+            message: "Folder found by ID",
+            success: true,
+            folder,
+        });
+    } catch (error) {
+        return res.status(500).json({
+            message: `Error while getting folder: ${error.message}`,
+            success: false,
+            error: error.message,
+        });
+    }
+};
+
+
+export const GetFolderAdmin = async (req, res) => {
+    try {
+        const { id } = req.query;
+
+        if (id) {
+            // If id is provided, fetch both parent and child folders
+            const [parentFolder, Folder] = await Promise.all([
+                folderModel.findById(id).lean(), // Fetch parent folder
+                folderModel.find({ folderId: id }).lean(), // Fetch child folders
+            ]);
+
+            const userId = req.params.id;
+
+
+
+            if (!parentFolder) {
+                return res.status(404).send({
+                    message: "Parent Folder not found",
+                    success: false,
+                });
+            }
+
+            return res.status(200).send({
+                message: "Parent and Child Folders found",
+                success: true,
+                parentFolder,
+                Folder,
+            });
+        } else {
+            // If id is not provided, fetch folders where folderId is empty
+            const Folder = await folderModel.find({ folderId: null }).lean();
+
+            return res.status(200).send({
+                message: "Folders without Parent found",
+                success: true,
+                Folder,
+            });
+        }
+    } catch (error) {
+        return res.status(500).send({
+            message: `Error while getting folders ${error}`,
+            success: false,
+            error,
+        });
+    }
+};
+
+
+
+export const GetImageAdmin = async (req, res) => {
+    try {
+        const { id } = req.query;
+
+        if (id) {
+
+            // Find galleryModel items for the specified user ID
+            const Gallery = await galleryModel.find({ folderId: id }).lean();
+
+            if (!Gallery) {
+                return res.status(404).send({
+                    message: "Images not found",
+                    success: false,
+                });
+            }
+
+            return res.status(200).send({
+                message: "images found by Id",
+                success: true,
+                Gallery,
+            });
+        } else {
+            // If id is not provided, fetch folders where folderId is empty
+            const Gallery = await galleryModel.find({ folderId: null }).lean();
+
+            return res.status(200).send({
+                message: "All images found",
+                success: true,
+                Gallery,
+            });
+        }
+    } catch (error) {
+        return res.status(500).send({
+            message: `Error while getting images ${error}`,
+            success: false,
+            error,
+        });
+    }
+};
+
+
+
+
+export const UpdateFolderAdmin = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name, folderId } = req.body;
+
+        // Validation: Check if the name is empty
+        if (!name || /^\s*$/.test(name)) {
+            return res.status(400).json({
+                success: false,
+                message: "Name is required",
+            });
+        }
+
+        // Check if the name already exists for another folder
+        const existingFolder = await folderModel.findOne({ name });
+        if (existingFolder && existingFolder._id.toString() !== id) {
+            return res.status(400).json({
+                success: false,
+                message: "Folder name already exists. Please choose a different name.",
+            });
+        }
+
+        let updateFields = {
+            name,
+            folderId,
+        };
+
+        const Folder = await folderModel.findByIdAndUpdate(id, updateFields, {
+            new: true,
+        });
+
+        if (!Folder) {
+            return res.status(404).json({
+                message: "Folder not found",
+                success: false,
+            });
+        }
+
+        return res.status(200).json({
+            message: "Folder updated successfully!",
+            success: true,
+            Folder,
+        });
+    } catch (error) {
+        return res.status(500).json({
+            message: `Error while updating Folder: ${error.message}`,
+            success: false,
+            error,
+        });
+    }
+};
+
+
+export const deleteFolderAdmin = async (req, res) => {
+    try {
+        await folderModel.findByIdAndDelete(req.params.id);
+
+        return res.status(200).send({
+            success: true,
+            message: "Folder Deleted!",
+        });
+    } catch (error) {
+        console.log(error);
+        return res.status(400).send({
+            success: false,
+            message: "Erorr WHile Deleteing Folder",
+            error,
+        });
+    }
+};
 
 
 
@@ -753,7 +1004,7 @@ export const AddAdminProduct = async (req, res) => {
         const p_id = lastProductId + 1;
 
         // Create a new category with the specified parent
-        const newProduct = new productModel({ p_id, title, description, pImage, images, slug, metaDescription, metaTitle, regularPrice, salePrice, status, stock, variations, metaKeywords, Category, tag });
+        const newProduct = new productModel({ p_id, title, description, pImage, images, slug, metaDescription, metaTitle, regularPrice, salePrice, Status, stock, variations, metaKeywords, Category, tag });
         await newProduct.save();
 
         return res.status(201).send({
@@ -836,7 +1087,7 @@ export const updateProductAdmin = async (req, res) => {
         } = req.body;
 
         let updateFields = {
-            title, description, pImage, images, slug, metaDescription, metaTitle, regularPrice, salePrice, status, stock, variations, metaKeywords, Category, tag
+            title, description, pImage, images, slug, metaDescription, metaTitle, regularPrice, salePrice, Status: status, stock, variations, metaKeywords, Category, tag
         };
 
 
@@ -846,7 +1097,7 @@ export const updateProductAdmin = async (req, res) => {
             { new: true }
         );
 
-
+        console.log('statusstatus', status)
 
         return res.status(200).json({
             message: 'product Updated!',
