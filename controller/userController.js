@@ -16,7 +16,9 @@ import privateProductModel from "../models/privateProductModel.js";
 import stripe from 'stripe';
 import nodemailer from 'nodemailer';
 
+
 const stripeInstance = stripe('sk_test_51OmehULPJUuaH4EOhIOvYF7lIlG1oPPO5zd5XvtL8KYV2Eh3OZnMmuq49toLtnwAmX300ENaGAEaLjIUZt9DAfa000TzIbSQqK');
+// const stripeInstance = stripe(STRIPE_SECRET_KEY);
 
 // Your controller function goes here
 
@@ -1159,9 +1161,10 @@ export const ordersucess = async (req, res) => {
       console.log('Payment successful:', name, amount, transactionID);
       const order = await orderModel.findOneAndUpdate(
         { PaymentId },
-        { transactionID, orderStatus: '1' },
+        { transactionID, orderStatus: '1', payment: 1 },
         { new: true }
       );
+      console.log('orderorder', order)
       if (!order) {
         return res.status(404).json({
           success: false,
