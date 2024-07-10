@@ -42,6 +42,7 @@ const productSchema = new mongoose.Schema(
         },
         Status: {
             type: Number,
+            default: 1,
         },
         stock: {
             type: Number,
@@ -49,6 +50,7 @@ const productSchema = new mongoose.Schema(
         variations: {
             type: Object,
         },
+
         Category: [{
             type: mongoose.Schema.Types.ObjectId,
             ref: 'Category'
@@ -58,5 +60,16 @@ const productSchema = new mongoose.Schema(
 );
 
 const productModel = mongoose.model("product", productSchema);
+
+// Method to delete products within a range of p_id
+productModel.deleteProductsByRange = async (startId, endId) => {
+    try {
+        await productModel.deleteMany({ p_id: { $gte: startId, $lte: endId } });
+        console.log(`Products with p_id from ${startId} to ${endId} deleted successfully.`);
+    } catch (error) {
+        console.error("Error deleting products:", error);
+        throw error;
+    }
+};
 
 export default productModel;

@@ -24,7 +24,8 @@ const orderSchema = mongoose.Schema({
   },]
   ,
   orderId: {
-    type: String,
+    type: Number,
+    default: 0,
   },
   orderStatus: {
     type: String,
@@ -35,7 +36,16 @@ const orderSchema = mongoose.Schema({
   PaymentId: {
     type: String,
 
-  }
+  }, payment: {
+    type: Number,
+    default: 0,
+  }, reason: {
+    type: String,
+  },
+
+  comment: {
+    type: String,
+  },
 },
   { timestamps: true }
 );

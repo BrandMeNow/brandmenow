@@ -17,6 +17,10 @@ const gallerySchema = new mongoose.Schema({
     dimensions: {
         type: String,
     },
+    folderId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Folder", // Reference to the "Folder" model
+    },
     createdAt: {
         type: Date,
         default: Date.now, // Set the default value to the current date and time
